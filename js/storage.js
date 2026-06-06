@@ -58,33 +58,28 @@ const Storage = {
 
   // ── ÁUDIO ──────────────────────────────────────
 
-  async uploadAudio(file, phraseId) {
-    const ext  = file.name.split('.').pop().toLowerCase();
-    const path = `${phraseId}.${ext}`;
+ async uploadAudio(file, phraseId) {
+    // Extrai só a extensão (mp3, ogg, wav...)
+    const rawExt = file.name.split('.').pop().toLowerCase();
 
-    // Faz upload do ficheiro para o bucket "audio" no Supabase Storage
+    // Remove qualquer caracter inválido da extensão
+    const ext = rawExt.replace(/[^a-z0-9]/g, '') || 'mp3';
+
+    // O caminho usa apenas o UUID — nunca o nome original do ficheiro
+    // Assim evitamos completamente o problema de nomes inválidos
+    const path = `audio_${phraseId}.${ext}`;
+
     const { error } = await supabase.storage
       .from('audio')
-      .upload(path, file, { upsert: true });
+      .upload(path, file, {
+        upsert:      true,
+        contentType: file.type || 'audio/mpeg'
+      });
+
     if (error) throw error;
 
-    // Devolve o URL público permanente do ficheiro
     const { data } = supabase.storage.from('audio').getPublicUrl(path);
     return data.publicUrl;
-  },
-
-  async deleteAudio(audioUrl) {
-    try {
-      // Extrai apenas o caminho do ficheiro a partir do URL completo
-      // Ex: ".../object/public/audio/abc.mp3" → "abc.mp3"
-      const marker = '/object/public/audio/';
-      const idx    = audioUrl.indexOf(marker);
-      if (idx < 0) return;
-      const path = audioUrl.slice(idx + marker.length);
-      await supabase.storage.from('audio').remove([path]);
-    } catch (e) {
-      console.error('Erro ao eliminar áudio:', e);
-    }
   },
 
   // ── DEFINIÇÕES (localStorage) ──────────────────
