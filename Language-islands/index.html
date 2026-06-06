@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Language Islands</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="header">
+    <div class="container">
+      <span class="logo">Language Islands</span>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <div class="page-header">
+      <h2>As minhas ilhas</h2>
+      <button class="btn btn-primary" onclick="openCreateModal()">+ Nova ilha</button>
+    </div>
+
+    <!-- As ilhas são inseridas aqui pelo JavaScript -->
+    <div id="islands-list" class="islands-grid"></div>
+
+  </main>
+
+  <!-- Modal: Criar / Editar Ilha -->
+  <div id="island-modal" class="modal hidden">
+    <div class="modal-overlay" onclick="closeModal('island-modal')"></div>
+    <div class="modal-box">
+      <h3 id="modal-title">Nova ilha</h3>
+      <form onsubmit="submitIslandForm(event)">
+
+        <!-- Campo oculto para guardar o id quando editamos -->
+        <input type="hidden" id="island-id">
+
+        <div class="form-group">
+          <label for="island-name">Nome da ilha</label>
+          <input type="text" id="island-name" placeholder="ex: Gym, Work, Travel..." required>
+        </div>
+        <div class="form-group">
+          <label for="native-lang">Idioma nativo</label>
+          <input type="text" id="native-lang" placeholder="ex: Português" required>
+        </div>
+        <div class="form-group">
+          <label for="target-lang">Idioma alvo</label>
+          <input type="text" id="target-lang" placeholder="ex: Francês" required>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('island-modal')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Confirmar Eliminação -->
+  <div id="delete-modal" class="modal hidden">
+    <div class="modal-overlay" onclick="closeModal('delete-modal')"></div>
+    <div class="modal-box">
+      <h3>Eliminar ilha</h3>
+      <p>Tens a certeza? Esta acção elimina a ilha e todas as suas frases.</p>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal('delete-modal')">Cancelar</button>
+        <button class="btn btn-danger" onclick="confirmDeleteIsland()">Eliminar</button>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+
+  <!-- A ordem importa: storage.js carrega primeiro porque islands.js depende dele -->
+  <script src="js/storage.js"></script>
+  <script src="js/islands.js"></script>
+
+</body>
+</html>
