@@ -58,29 +58,27 @@ const Storage = {
 
   // ── ÁUDIO ──────────────────────────────────────
 
- async uploadAudio(file, phraseId) {
-    // Extrai só a extensão (mp3, ogg, wav...)
-    const rawExt = file.name.split('.').pop().toLowerCase();
+async uploadAudio(file) {
+  // Converte o ficheiro para base64 — igual ao que fazíamos com localStorage
+  return new Promise((resolve, reject) => {
+    const maxSize = 2 * 1024 * 1024;
+    if (file.size > maxSize) {
+      reject(new Error('Ficheiro demasiado grande. Máximo 2MB.'));
+      return;
+    }
 
-    // Remove qualquer caracter inválido da extensão
-    const ext = rawExt.replace(/[^a-z0-9]/g, '') || 'mp3';
+    const reader = new FileReader();
+    reader.onload  = e => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('Erro ao ler o ficheiro.'));
+    reader.readAsDataURL(file);
+  });
+},
 
-    // O caminho usa apenas o UUID — nunca o nome original do ficheiro
-    // Assim evitamos completamente o problema de nomes inválidos
-    const path = `audio_${phraseId}.${ext}`;
-
-    const { error } = await supabase.storage
-      .from('audio')
-      .upload(path, file, {
-        upsert:      true,
-        contentType: file.type || 'audio/mpeg'
-      });
-
-    if (error) throw error;
-
-    const { data } = supabase.storage.from('audio').getPublicUrl(path);
-    return data.publicUrl;
-  },
+async deleteAudio(audioUrl) {
+  // Base64 fica na BD — ao apagar a frase o áudio desaparece automaticamente
+  // Não há nada para fazer aqui
+  return;
+},
 
   // ── DEFINIÇÕES (localStorage) ──────────────────
 

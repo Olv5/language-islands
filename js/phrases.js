@@ -172,7 +172,7 @@ async function submitPhraseForm(event) {
     if (pendingAudioFile) {
       // Faz upload do novo ficheiro; se havia áudio antigo, elimina-o
       if (original?.audio_url) await Storage.deleteAudio(original.audio_url);
-      audioUrl = await Storage.uploadAudio(pendingAudioFile, phraseId);
+      audioUrl = await Storage.uploadAudio(pendingAudioFile);
 
     } else if (removeAudioFlag && original?.audio_url) {
       // Utilizador removeu o áudio existente
