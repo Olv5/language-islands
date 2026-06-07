@@ -37,14 +37,37 @@ function sleep(ms, signal) {
   });
 }
 
+// Um único elemento de áudio reutilizado em todas as reproduções
+const _audio = new Audio();
+
 function playAudio(url, signal) {
   return new Promise(resolve => {
     if (signal.aborted) return resolve();
-    const audio = new Audio(url);
-    audio.onended = resolve;
-    audio.onerror = resolve;
-    signal.addEventListener('abort', () => { audio.pause(); audio.src = ''; resolve(); }, { once: true });
-    audio.play().catch(resolve);
+
+    // Garante que done() só é chamado uma vez
+    // mesmo que onended e abort disparem ao mesmo tempo
+    let finished = false;
+    function done() {
+      if (finished) return;
+      finished = true;
+      _audio.onended = null;
+      _audio.onerror = null;
+      resolve();
+    }
+
+    _audio.onended = done;
+    _audio.onerror = done;
+
+    signal.addEventListener('abort', () => {
+      _audio.pause();
+      _audio.currentTime = 0;
+      done();
+    }, { once: true });
+
+    // Reinicia o elemento antes de cada reprodução
+    _audio.src         = url;
+    _audio.currentTime = 0;
+    _audio.play().catch(done);
   });
 }
 
