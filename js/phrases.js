@@ -36,13 +36,19 @@ async function renderPhrases() {
   const container = document.getElementById('phrases-list');
   const phrases   = await Storage.getPhrases(islandId);
 
-  const playBtn = document.getElementById('play-btn');
-  if (phrases.length > 0) {
-    playBtn.href = `play.html?id=${islandId}`;
-    playBtn.classList.remove('hidden');
-  } else {
-    playBtn.classList.add('hidden');
-  }
+const playBtn   = document.getElementById('play-btn');
+const recallBtn = document.getElementById('recall-btn');
+
+if (phrases.length > 0) {
+  playBtn.href = `play.html?id=${islandId}`;
+  playBtn.classList.remove('hidden');
+
+  recallBtn.href = `recall.html?id=${islandId}`;
+  recallBtn.classList.remove('hidden');
+} else {
+  playBtn.classList.add('hidden');
+  recallBtn.classList.add('hidden');
+}
 
   if (phrases.length === 0) {
     container.innerHTML = `

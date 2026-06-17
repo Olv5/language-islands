@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Active Recall — Language Islands</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="header">
+    <div class="container header-inner">
+      <a id="back-link" href="index.html" class="back-link">← Voltar</a>
+      <span class="logo">Language Islands</span>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <div class="player-meta">
+      <span id="recall-island-name" class="player-island-name"></span>
+      <span id="recall-island-langs" class="player-island-langs"></span>
+    </div>
+
+    <div class="player-card">
+
+      <div class="player-progress-header">
+        <span id="recall-progress-text" class="player-progress-text">Frase — de —</span>
+      </div>
+
+      <div class="progress-bar-track">
+        <div id="recall-progress-fill" class="progress-bar-fill" style="width:0%"></div>
+      </div>
+
+      <!-- Frase nativa: sempre visível -->
+      <p id="recall-native" class="display-native"></p>
+
+      <!-- Frase alvo: com blur até o utilizador clicar em "Revelar" -->
+      <p id="recall-target" class="display-target recall-blurred"></p>
+
+      <!-- Áudio: só visível depois de revelar, e só se a frase tiver áudio -->
+      <audio id="recall-audio" class="phrase-audio hidden" controls></audio>
+
+      <button id="recall-toggle-btn" class="btn btn-primary recall-reveal-btn"
+        onclick="toggleReveal()">Revelar frase</button>
+
+    </div>
+
+    <div class="player-controls">
+      <button class="ctrl-btn ctrl-skip" onclick="prevCard()" title="Anterior">⏮</button>
+      <button class="ctrl-btn ctrl-skip" onclick="shuffleCards()" title="Baralhar">🔀</button>
+      <button class="ctrl-btn ctrl-skip" onclick="nextCard()" title="Seguinte">⏭</button>
+    </div>
+
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/recall.js"></script>
+
+</body>
+</html>

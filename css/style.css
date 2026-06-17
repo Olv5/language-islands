@@ -558,3 +558,19 @@ input[type="file"] {
   min-width: 2.5rem;
   text-align: center;
 }
+
+/* ─────────────────────────────────────
+   Active Recall
+───────────────────────────────────── */
+
+/* O blur esconde o texto mas mantém o comprimento/forma visível,
+   o que ajuda subtilmente sem revelar a resposta */
+.recall-blurred {
+  filter: blur(8px);
+  user-select: none;   /* impede "roubar" a resposta seleccionando o texto */
+}
+
+.recall-reveal-btn {
+  width: 100%;
+  margin-top: 1rem;
+}
