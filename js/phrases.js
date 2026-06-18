@@ -130,10 +130,25 @@ function handleAudioUpload(event) {
     return;
   }
 
-  // Guardamos o File object — o upload para o Supabase acontece só ao guardar
   pendingAudioFile = file;
 
-  // createObjectURL cria um URL temporário local para pré-visualizar sem fazer upload
+  // ── Preenche o campo do texto alvo com o nome do ficheiro ──
+  const targetField = document.getElementById('phrase-target');
+
+  // Só preenche automaticamente se o campo estiver vazio
+  // — assim não apaga texto que o utilizador já tenha escrito
+  if (!targetField.value.trim()) {
+    // Remove a extensão: "Combien de séries.mp3" → "Combien de séries"
+    const nameWithoutExt = file.name.replace(/\.[^.]+$/, '');
+
+    // Remove underscores e hífens usados como separadores de palavras:
+    // "combien_de_series" → "combien de series"
+    const cleanName = nameWithoutExt.replace(/[_-]/g, ' ').trim();
+
+    targetField.value = cleanName;
+  }
+
+  // Pré-visualização do áudio
   const tempUrl = URL.createObjectURL(file);
   document.getElementById('new-audio-player').src = tempUrl;
   document.getElementById('new-audio-section').classList.remove('hidden');
