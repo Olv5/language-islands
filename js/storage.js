@@ -36,20 +36,29 @@ const Storage = {
 
   // ── FRASES ─────────────────────────────────────
 
-  async getPhrases(islandId) {
-    const { data, error } = await supabase
-      .from('phrases')
-      .select('*')
-      .eq('island_id', islandId)
-      .order('sort_order', { ascending: true });
-    if (error) throw error;
-    return data || [];
-  },
+async getPhrases(islandId) {
+  const { data, error } = await supabase
+    .from('phrases')
+    .select('*')
+    .eq('island_id', islandId)
+    .order('mastered',    { ascending: true })
+    .order('sort_order',  { ascending: true });
+  if (error) throw error;
+  return data || [];
+},
 
   async savePhrase(phrase) {
     const { error } = await supabase.from('phrases').upsert(phrase);
     if (error) throw error;
   },
+
+  async updatePhrase(id, fields) {
+  const { error } = await supabase
+    .from('phrases')
+    .update(fields)
+    .eq('id', id);
+  if (error) throw error;
+},
 
   async deletePhrase(id) {
     const { error } = await supabase.from('phrases').delete().eq('id', id);

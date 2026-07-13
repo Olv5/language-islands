@@ -23,12 +23,14 @@
     </div>
 
   <div class="page-header">
-    <h3>Frases</h3>
-    <div style="display:flex; gap:0.5rem;">
-      <a id="play-btn" href="#" class="btn btn-primary hidden">▶ Play Island</a>
-      <a id="recall-btn" href="#" class="btn btn-secondary hidden">🧠 Active Recall</a>
-      <button class="btn btn-primary" onclick="openCreateModal()">+ Nova frase</button>
-    </div>
+  <h3>Frases</h3>
+  <div style="display:flex; gap:0.5rem; align-items:center;">
+    <button id="blur-toggle"
+      class="btn btn-secondary btn-sm hidden"
+      onclick="toggleBlur()">👁 Ocultar traduções</button>
+    <a id="play-btn" href="#" class="btn btn-primary hidden">▶ Play Island</a>
+    <button class="btn btn-primary" onclick="openCreateModal()">+ Nova frase</button>
+  </div>
 </div>
 
     <div id="phrases-list" class="phrases-list"></div>

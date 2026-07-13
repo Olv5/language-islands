@@ -1,6 +1,6 @@
 /**
  * islands.js — CRUD das ilhas
- * Actualizado para async/await.
+ * Inclui contagem de frases e botão Play directo no card
  */
 
 let pendingDeleteId = null;
@@ -24,21 +24,59 @@ async function renderIslands() {
     return;
   }
 
-  container.innerHTML = islands.map(island => `
-    <div class="island-card">
-      <div>
-        <h3 class="island-name">${escapeHtml(island.name)}</h3>
-        <p class="island-langs">
-          ${escapeHtml(island.native_language)} → ${escapeHtml(island.target_language)}
-        </p>
+  // Uma única query busca todas as frases de todas as ilhas
+  // Evita fazer N queries (uma por ilha)
+  const { data: allPhrases } = await supabase
+    .from('phrases')
+    .select('island_id, mastered')
+    .in('island_id', islands.map(i => i.id));
+
+  // Agrupa por island_id para contar rapidamente
+  const countMap = {};
+  (allPhrases || []).forEach(p => {
+    if (!countMap[p.island_id]) {
+      countMap[p.island_id] = { total: 0, mastered: 0 };
+    }
+    countMap[p.island_id].total++;
+    if (p.mastered) countMap[p.island_id].mastered++;
+  });
+
+  container.innerHTML = islands.map(island => {
+    const counts   = countMap[island.id] || { total: 0, mastered: 0 };
+    const hasPlay  = counts.total > 0;
+
+    return `
+      <div class="island-card">
+
+        <div class="island-card-top">
+          <div>
+            <h3 class="island-name">${escapeHtml(island.name)}</h3>
+            <p class="island-langs">
+              ${escapeHtml(island.native_language)} → ${escapeHtml(island.target_language)}
+            </p>
+          </div>
+          <div class="island-stats">
+            <span class="stat-badge">${counts.total} frase${counts.total !== 1 ? 's' : ''}</span>
+            ${counts.mastered > 0
+              ? `<span class="stat-badge stat-mastered">${counts.mastered} dominada${counts.mastered !== 1 ? 's' : ''}</span>`
+              : ''
+            }
+          </div>
+        </div>
+
+        <div class="island-card-actions">
+          ${hasPlay
+            ? `<a href="play.html?id=${island.id}" class="btn btn-primary btn-sm">▶ Play</a>`
+            : ''
+          }
+          <a href="island.html?id=${island.id}" class="btn btn-secondary btn-sm">Ver frases</a>
+          <button class="btn btn-secondary btn-sm" onclick="openEditModal('${island.id}')">Editar</button>
+          <button class="btn btn-danger btn-sm"    onclick="openDeleteModal('${island.id}')">Eliminar</button>
+        </div>
+
       </div>
-      <div class="island-card-actions">
-        <a href="island.html?id=${island.id}" class="btn btn-primary btn-sm">Ver frases</a>
-        <button class="btn btn-secondary btn-sm" onclick="openEditModal('${island.id}')">Editar</button>
-        <button class="btn btn-danger btn-sm" onclick="openDeleteModal('${island.id}')">Eliminar</button>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 // ── MODAIS ─────────────────────────────────────
@@ -97,8 +135,6 @@ async function submitIslandForm(event) {
   const id = document.getElementById('island-id').value;
 
   const island = {
-    // crypto.randomUUID() gera um UUID real (ex: "550e8400-e29b-41d4-...")
-    // que é o formato que o Supabase espera para colunas uuid
     id:              id || crypto.randomUUID(),
     name:            document.getElementById('island-name').value.trim(),
     native_language: document.getElementById('native-lang').value.trim(),
