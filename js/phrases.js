@@ -1,6 +1,5 @@
 /**
- * phrases.js — CRUD das frases
- * Inclui: speaker compacto, estrelas, dominadas, blur toggle
+ * phrases.js — CRUD + Player integrado
  */
 
 const urlParams  = new URLSearchParams(window.location.search);
@@ -14,9 +13,16 @@ let pendingAudioFile = null;
 let removeAudioFlag  = false;
 let isBlurred        = false;
 
-// Elemento de áudio partilhado entre todos os cards
-const _cardAudio     = new Audio();
-let _playingPhraseId = null;
+// ── ÁUDIO CARDS ───────────────────────────────
+const _cardAudio   = new Audio();
+let _playingCardId = null;
+
+// ── PLAYER ────────────────────────────────────
+const _playerAudio     = new Audio();
+let isPlaying          = false;
+let currentPhraseIndex = 0;
+let abortController    = null;
+let settings           = { repetitions: 2, pauseBetweenReps: 1, pauseBetweenPhrases: 2 };
 
 // ── INICIALIZAÇÃO ──────────────────────────────
 
@@ -26,11 +32,14 @@ async function init() {
   if (!island) { window.location.href = 'index.html'; return; }
 
   document.title = `${island.name} — Language Islands`;
-  document.getElementById('island-title').textContent = island.name;
+  document.getElementById('island-title').textContent        = island.name;
   document.getElementById('island-langs-display').textContent =
     `${island.native_language} → ${island.target_language}`;
   document.getElementById('label-native').textContent = `Texto em ${island.native_language}`;
   document.getElementById('label-target').textContent = `Texto em ${island.target_language}`;
+
+  settings = Storage.getSettings();
+  loadSettingsUI();
 
   await renderPhrases();
 }
@@ -38,20 +47,21 @@ async function init() {
 // ── RENDERIZAÇÃO ───────────────────────────────
 
 async function renderPhrases() {
-  const container  = document.getElementById('phrases-list');
-  cachedPhrases    = await Storage.getPhrases(islandId);
-
-  const playBtn    = document.getElementById('play-btn');
-  const blurToggle = document.getElementById('blur-toggle');
-
-  if (cachedPhrases.length > 0) {
-    playBtn.href = `play.html?id=${islandId}`;
-    playBtn.classList.remove('hidden');
-    blurToggle.classList.remove('hidden');
-  } else {
-    playBtn.classList.add('hidden');
-    blurToggle.classList.add('hidden');
+  // Para o player e o áudio dos cards antes de re-renderizar
+  if (abortController) {
+    abortController.abort();
+    isPlaying = false;
+    clearHighlight();
+    updatePlayerBarBtn();
+    updateRepText(0, 0);
   }
+  _cardAudio.pause();
+  _playingCardId = null;
+
+  const container = document.getElementById('phrases-list');
+  cachedPhrases   = await Storage.getPhrases(islandId);
+
+  updatePlayerBar();
 
   if (cachedPhrases.length === 0) {
     container.innerHTML = `
@@ -68,17 +78,12 @@ async function renderPhrases() {
   let dividerDone = false;
 
   cachedPhrases.forEach((phrase, index) => {
-
-    // Divisor antes do primeiro dominado
     if (phrase.mastered && !dividerDone) {
       parts.push(`<div class="mastered-divider"><span>dominadas</span></div>`);
       dividerDone = true;
     }
 
-    const stars = phrase.stars || 0;
-
-    // Gera os 5 botões de estrela
-    // Clicar na mesma estrela que já está activa → reset para 0
+    const stars     = phrase.stars || 0;
     const starsHtml = [1,2,3,4,5].map(s => `
       <button class="star-btn ${stars >= s ? 'star-on' : 'star-off'}"
         onclick="setStars('${phrase.id}', ${stars === s ? 0 : s})"
@@ -126,30 +131,33 @@ async function renderPhrases() {
   });
 
   container.innerHTML = parts.join('');
-
-  // Para o áudio se um re-render acontecer enquanto está a tocar
-  if (_playingPhraseId) {
-    _cardAudio.pause();
-    _playingPhraseId = null;
-  }
 }
 
-// ── SPEAKER COMPACTO ───────────────────────────
+// ── SPEAKER CARDS ──────────────────────────────
 
 function playPhraseAudio(phraseId) {
+  // Para o player se estiver activo
+  if (isPlaying) {
+    if (abortController) abortController.abort();
+    isPlaying = false;
+    clearHighlight();
+    updatePlayerBarBtn();
+    updateRepText(0, 0);
+  }
+
   // Clicar no mesmo botão pausa
-  if (_playingPhraseId === phraseId && !_cardAudio.paused) {
+  if (_playingCardId === phraseId && !_cardAudio.paused) {
     _cardAudio.pause();
     _cardAudio.currentTime = 0;
     updateSpeakerBtn(phraseId, false);
-    _playingPhraseId = null;
+    _playingCardId = null;
     return;
   }
 
-  // Para o áudio anterior se for uma frase diferente
-  if (_playingPhraseId && _playingPhraseId !== phraseId) {
+  // Para o áudio anterior
+  if (_playingCardId && _playingCardId !== phraseId) {
     _cardAudio.pause();
-    updateSpeakerBtn(_playingPhraseId, false);
+    updateSpeakerBtn(_playingCardId, false);
   }
 
   const phrase = cachedPhrases.find(p => p.id === phraseId);
@@ -157,17 +165,17 @@ function playPhraseAudio(phraseId) {
 
   _cardAudio.src         = phrase.audio_url;
   _cardAudio.currentTime = 0;
-  _playingPhraseId       = phraseId;
+  _playingCardId         = phraseId;
   updateSpeakerBtn(phraseId, true);
 
   _cardAudio.onended = () => {
     updateSpeakerBtn(phraseId, false);
-    _playingPhraseId = null;
+    _playingCardId = null;
   };
 
   _cardAudio.play().catch(() => {
     updateSpeakerBtn(phraseId, false);
-    _playingPhraseId = null;
+    _playingCardId = null;
   });
 }
 
@@ -182,13 +190,11 @@ function updateSpeakerBtn(phraseId, playing) {
 
 function toggleBlur() {
   isBlurred = !isBlurred;
-
   document.querySelectorAll('.phrase-target').forEach(el => {
     el.classList.toggle('recall-blurred', isBlurred);
   });
-
   const btn = document.getElementById('blur-toggle');
-  btn.textContent = isBlurred ? '👁 Mostrar traduções' : '👁 Ocultar traduções';
+  btn.textContent = isBlurred ? '👁 Mostrar' : '👁 Ocultar';
   btn.classList.toggle('btn-blur-active', isBlurred);
   btn.classList.toggle('btn-secondary',   !isBlurred);
 }
@@ -198,13 +204,9 @@ function toggleBlur() {
 async function setStars(phraseId, newStars) {
   try {
     await Storage.updatePhrase(phraseId, { stars: newStars });
-
-    // Actualiza o cache local para não precisar de ir à BD
     const phrase = cachedPhrases.find(p => p.id === phraseId);
     if (phrase) phrase.stars = newStars;
 
-    // Actualiza apenas os botões de estrela sem re-renderizar o card inteiro
-    // (evita interromper o áudio que possa estar a tocar)
     const card = document.querySelector(`[data-phrase-id="${phraseId}"]`);
     if (!card) return;
     card.querySelectorAll('.star-btn').forEach((btn, i) => {
@@ -213,7 +215,6 @@ async function setStars(phraseId, newStars) {
       btn.classList.toggle('star-off', newStars < val);
       btn.onclick = () => setStars(phraseId, newStars === val ? 0 : val);
     });
-
   } catch (e) {
     alert('Erro ao guardar estrelas: ' + e.message);
   }
@@ -226,11 +227,231 @@ async function toggleMastered(phraseId) {
     const phrase = cachedPhrases.find(p => p.id === phraseId);
     if (!phrase) return;
     await Storage.updatePhrase(phraseId, { mastered: !phrase.mastered });
-    // Re-render completo porque a posição do card muda
     await renderPhrases();
   } catch (e) {
     alert('Erro ao actualizar frase: ' + e.message);
   }
+}
+
+// ── PLAYER HELPERS ─────────────────────────────
+
+function sleep(ms, signal) {
+  return new Promise(resolve => {
+    if (signal.aborted || ms <= 0) return resolve();
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
+}
+
+function playAudioPlayer(url, signal) {
+  return new Promise(resolve => {
+    if (signal.aborted) return resolve();
+
+    let done = false;
+    function finish() {
+      if (done) return;
+      done = true;
+      _playerAudio.onended = null;
+      _playerAudio.onerror = null;
+      resolve();
+    }
+
+    _playerAudio.onended = finish;
+    _playerAudio.onerror = finish;
+
+    signal.addEventListener('abort', () => {
+      _playerAudio.pause();
+      _playerAudio.currentTime = 0;
+      finish();
+    }, { once: true });
+
+    _playerAudio.src = url;
+    _playerAudio.currentTime = 0;
+    _playerAudio.play().catch(finish);
+  });
+}
+
+// ── PLAYER LOOP ───────────────────────────────
+
+async function runPlayback() {
+  abortController = new AbortController();
+  const signal    = abortController.signal;
+  const total     = cachedPhrases.length;
+
+  while (currentPhraseIndex < total && !signal.aborted) {
+    const phrase    = cachedPhrases[currentPhraseIndex];
+    const hasAudio  = !!phrase.audio_url;
+    const totalReps = hasAudio ? settings.repetitions : 1;
+
+    highlightPhrase(currentPhraseIndex);
+    updatePlayerBar();
+
+    for (let rep = 0; rep < totalReps && !signal.aborted; rep++) {
+      updateRepText(rep + 1, totalReps);
+
+      if (hasAudio) {
+        await playAudioPlayer(phrase.audio_url, signal);
+      } else {
+        await sleep(3000, signal);
+      }
+
+      if (!signal.aborted && rep < totalReps - 1) {
+        await sleep(settings.pauseBetweenReps * 1000, signal);
+      }
+    }
+
+    if (!signal.aborted) {
+      currentPhraseIndex++;
+      if (currentPhraseIndex < total) {
+        await sleep(settings.pauseBetweenPhrases * 1000, signal);
+      }
+    }
+  }
+
+  // Terminou naturalmente
+  if (!signal.aborted) {
+    currentPhraseIndex = 0;
+    clearHighlight();
+    updatePlayerBar();
+    updateRepText(0, 0);
+  }
+
+  isPlaying = false;
+  updatePlayerBarBtn();
+}
+
+// ── PLAYER CONTROLOS ──────────────────────────
+
+function togglePlay() {
+  isPlaying ? pausePlayback() : startPlayback();
+}
+
+function startPlayback() {
+  if (cachedPhrases.length === 0) return;
+  if (currentPhraseIndex >= cachedPhrases.length) currentPhraseIndex = 0;
+
+  // Para o áudio dos cards se estiver a tocar
+  if (_playingCardId) {
+    _cardAudio.pause();
+    updateSpeakerBtn(_playingCardId, false);
+    _playingCardId = null;
+  }
+
+  isPlaying = true;
+  updatePlayerBarBtn();
+  runPlayback();
+}
+
+function pausePlayback() {
+  if (abortController) abortController.abort();
+  isPlaying = false;
+  updatePlayerBarBtn();
+}
+
+function stopPlayer() {
+  if (abortController) abortController.abort();
+  isPlaying          = false;
+  currentPhraseIndex = 0;
+  clearHighlight();
+  updatePlayerBarBtn();
+  updatePlayerBar();
+  updateRepText(0, 0);
+}
+
+function nextPhrase() {
+  const wasPlaying = isPlaying;
+  if (abortController) abortController.abort();
+  isPlaying = false;
+
+  currentPhraseIndex = (currentPhraseIndex + 1) % cachedPhrases.length;
+  updatePlayerBar();
+
+  if (wasPlaying) {
+    startPlayback();
+  } else {
+    highlightPhrase(currentPhraseIndex);
+  }
+}
+
+function prevPhrase() {
+  const wasPlaying = isPlaying;
+  if (abortController) abortController.abort();
+  isPlaying = false;
+
+  currentPhraseIndex = (currentPhraseIndex - 1 + cachedPhrases.length) % cachedPhrases.length;
+  updatePlayerBar();
+
+  if (wasPlaying) {
+    startPlayback();
+  } else {
+    highlightPhrase(currentPhraseIndex);
+  }
+}
+
+// ── PLAYER UI ────────────────────────────────
+
+function highlightPhrase(index) {
+  clearHighlight();
+  const phrase = cachedPhrases[index];
+  if (!phrase) return;
+  const card = document.querySelector(`[data-phrase-id="${phrase.id}"]`);
+  if (!card) return;
+  card.classList.add('phrase-playing');
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function clearHighlight() {
+  document.querySelectorAll('.phrase-playing')
+    .forEach(el => el.classList.remove('phrase-playing'));
+}
+
+function updatePlayerBar() {
+  const total   = cachedPhrases.length;
+  const current = total > 0 ? Math.min(currentPhraseIndex + 1, total) : 0;
+  document.getElementById('bar-progress-text').textContent =
+    total > 0 ? `${current} / ${total}` : '';
+}
+
+function updateRepText(rep, total) {
+  const el = document.getElementById('bar-rep-text');
+  if (!el) return;
+  el.textContent = (total > 1 && rep > 0) ? `Rep ${rep}×` : '';
+}
+
+function updatePlayerBarBtn() {
+  const btn = document.getElementById('bar-play-btn');
+  if (btn) btn.textContent = isPlaying ? '⏸' : '▶';
+}
+
+// ── DEFINIÇÕES ────────────────────────────────
+
+const LIMITS = {
+  repetitions:         { min: 1,   max: 10 },
+  pauseBetweenReps:    { min: 0,   max: 10 },
+  pauseBetweenPhrases: { min: 0.5, max: 15 }
+};
+
+function adjustSetting(key, delta) {
+  const { min, max } = LIMITS[key];
+  let val = Math.round((settings[key] + delta) * 10) / 10;
+  val = Math.max(min, Math.min(max, val));
+  settings[key] = val;
+  Storage.saveSettings(settings);
+  loadSettingsUI();
+}
+
+function loadSettingsUI() {
+  document.getElementById('s-reps-value').textContent          = settings.repetitions + 'x';
+  document.getElementById('s-pause-reps-value').textContent    = settings.pauseBetweenReps + 's';
+  document.getElementById('s-pause-phrases-value').textContent = settings.pauseBetweenPhrases + 's';
+}
+
+function toggleSettings() {
+  const content = document.getElementById('settings-content');
+  const btn     = document.getElementById('settings-btn');
+  const isOpen  = !content.classList.contains('hidden');
+  content.classList.toggle('hidden');
+  btn.classList.toggle('ipb-settings-active', !isOpen);
 }
 
 // ── MODAIS ─────────────────────────────────────
@@ -270,11 +491,10 @@ function openDeleteModal(id) {
 function openModal(id)  { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
-// ── ÁUDIO DO FORMULÁRIO ────────────────────────
+// ── ÁUDIO FORMULÁRIO ──────────────────────────
 
 function handleAudioUpload(event) {
   const file = event.target.files[0];
-
   if (!file) {
     pendingAudioFile = null;
     document.getElementById('new-audio-section').classList.add('hidden');
@@ -283,18 +503,15 @@ function handleAudioUpload(event) {
 
   pendingAudioFile = file;
 
-  // Preenche o campo alvo com o nome do ficheiro se estiver vazio
   const targetField = document.getElementById('phrase-target');
   if (!targetField.value.trim()) {
-    const cleanName = file.name
-      .replace(/\.[^.]+$/, '')   // remove extensão
-      .replace(/[_-]/g, ' ')     // underscores e hífens → espaços
+    targetField.value = file.name
+      .replace(/\.[^.]+$/, '')
+      .replace(/[_-]/g, ' ')
       .trim();
-    targetField.value = cleanName;
   }
 
-  const tempUrl = URL.createObjectURL(file);
-  document.getElementById('new-audio-player').src = tempUrl;
+  document.getElementById('new-audio-player').src = URL.createObjectURL(file);
   document.getElementById('new-audio-section').classList.remove('hidden');
 }
 
@@ -326,12 +543,10 @@ async function submitPhraseForm(event) {
     const id         = document.getElementById('phrase-id').value;
     const nativeText = document.getElementById('phrase-native').value.trim();
     const targetText = document.getElementById('phrase-target').value.trim();
-
-    const original = id ? cachedPhrases.find(p => p.id === id) : null;
-    const maxOrder = cachedPhrases.reduce((max, p) => Math.max(max, p.sort_order), -1);
-
-    const phraseId = id || crypto.randomUUID();
-    let audioUrl   = original?.audio_url || null;
+    const original   = id ? cachedPhrases.find(p => p.id === id) : null;
+    const maxOrder   = cachedPhrases.reduce((max, p) => Math.max(max, p.sort_order), -1);
+    const phraseId   = id || crypto.randomUUID();
+    let audioUrl     = original?.audio_url || null;
 
     if (pendingAudioFile) {
       if (original?.audio_url) await Storage.deleteAudio(original.audio_url);
@@ -370,7 +585,6 @@ async function confirmDeletePhrase() {
   try {
     const phrase = cachedPhrases.find(p => p.id === pendingDeleteId);
     if (phrase?.audio_url) await Storage.deleteAudio(phrase.audio_url);
-
     await Storage.deletePhrase(pendingDeleteId);
     pendingDeleteId = null;
     closeModal('delete-modal');
@@ -389,6 +603,7 @@ function escapeHtml(str) {
 }
 
 // ── ARRANQUE ───────────────────────────────────
+
 init().catch(err => {
   console.error(err);
   alert('Erro ao carregar a página. Verifica a ligação ao Supabase.');

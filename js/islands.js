@@ -66,7 +66,7 @@ async function renderIslands() {
 
         <div class="island-card-actions">
           ${hasPlay
-            ? `<a href="play.html?id=${island.id}" class="btn btn-primary btn-sm">▶ Play</a>`
+            ? `<a href="island.html?id=${island.id}" class="btn btn-primary btn-sm">▶ Play</a>`
             : ''
           }
           <a href="island.html?id=${island.id}" class="btn btn-secondary btn-sm">Ver frases</a>
