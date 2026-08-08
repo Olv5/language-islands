@@ -29,6 +29,8 @@
         <button class="ipb-btn ipb-play" id="bar-play-btn" onclick="togglePlay()">▶</button>
         <button class="ipb-btn" onclick="nextPhrase()" title="Seguinte">⏭</button>
         <button class="ipb-btn" onclick="stopPlayer()" title="Parar">⏹</button>
+        <button class="ipb-btn" id="loop-btn" onclick="toggleLoop()" title="Repetir">🔁</button>
+        <button class="ipb-btn" id="writing-btn" onclick="toggleWritingMode()" title="Modo escrita">✏</button>
         <div class="ipb-info">
           <span id="bar-rep-text"      class="ipb-rep"></span>
           <span id="bar-progress-text" class="ipb-progress"></span>
@@ -51,6 +53,27 @@
           <button onclick="adjustSetting('repetitions', -1)">−</button>
           <span id="s-reps-value">—</span>
           <button onclick="adjustSetting('repetitions', +1)">+</button>
+        </div>
+      </div>
+      <div id="writing-panel" class="writing-panel hidden">
+        <div class="writing-header">
+          <span class="writing-label">Traduz para <span id="writing-target-lang"></span>:</span>
+          <button class="speaker-btn" id="writing-replay-btn"
+            onclick="replayWritingAudio()" title="Ouvir de novo">🔊</button>
+        </div>
+        <p id="writing-native-text" class="writing-native"></p>
+        <div class="writing-input-row">
+          <input type="text" id="writing-input"
+            placeholder="Escreve aqui..."
+            onkeydown="handleWritingKey(event)">
+          <button class="btn btn-primary" onclick="submitWriting()">✓</button>
+        </div>
+        <div id="writing-feedback" class="writing-feedback hidden">
+          <p id="writing-result" class="writing-result"></p>
+          <p id="writing-correct-answer" class="writing-correct"></p>
+          <button class="btn btn-secondary btn-sm"
+            style="margin-top:0.75rem; width:100%"
+            onclick="advanceWriting()">Próxima →</button>
         </div>
       </div>
       <div class="setting-row">

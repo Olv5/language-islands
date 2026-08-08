@@ -22,6 +22,10 @@ const _playerAudio     = new Audio();
 let isPlaying          = false;
 let currentPhraseIndex = 0;
 let abortController    = null;
+let isLooping = false;
+let isWritingMode  = false;
+let writingResolve = null;
+let _writingAudioUrl = null;
 let settings           = { repetitions: 2, pauseBetweenReps: 1, pauseBetweenPhrases: 2 };
 
 // ── INICIALIZAÇÃO ──────────────────────────────
@@ -92,7 +96,8 @@ async function renderPhrases() {
 
     parts.push(`
       <div class="phrase-card ${phrase.mastered ? 'phrase-mastered' : ''}"
-        data-phrase-id="${phrase.id}">
+        data-phrase-id="${phrase.id}"
+        onclick="handleCardClick(event, '${phrase.id}')">
 
         <div class="phrase-left">
           <span class="phrase-number">${index + 1}</span>
@@ -302,22 +307,56 @@ async function runPlayback() {
 
     if (!signal.aborted) {
       currentPhraseIndex++;
-      if (currentPhraseIndex < total) {
+      if (currentPhraseIndex < total && !isWritingMode) {
         await sleep(settings.pauseBetweenPhrases * 1000, signal);
+      }
+    }
+
+    if (isWritingMode) {
+      // Toca o áudio uma vez antes de mostrar o campo de escrita
+      if (hasAudio && !signal.aborted) {
+        _writingAudioUrl = phrase.audio_url;
+        await playAudioPlayer(phrase.audio_url, signal);
+      } else {
+        _writingAudioUrl = null;
+      }
+      if (!signal.aborted) {
+        await waitForWritingInput(phrase, signal);
+      }
+    } else {
+      const totalReps = hasAudio ? settings.repetitions : 1;
+      for (let rep = 0; rep < totalReps && !signal.aborted; rep++) {
+        updateRepText(rep + 1, totalReps);
+        if (hasAudio) {
+          await playAudioPlayer(phrase.audio_url, signal);
+        } else {
+          await sleep(3000, signal);
+        }
+        if (!signal.aborted && rep < totalReps - 1) {
+          await sleep(settings.pauseBetweenReps * 1000, signal);
+        }
       }
     }
   }
 
   // Terminou naturalmente
-  if (!signal.aborted) {
-    currentPhraseIndex = 0;
-    clearHighlight();
-    updatePlayerBar();
-    updateRepText(0, 0);
-  }
+    if (!signal.aborted) {
+      if (isLooping) {
+        // Reinicia do início sem parar o player
+        currentPhraseIndex = 0;
+        isPlaying = false;
+        startPlayback();
+        return;
+      } else {
+        currentPhraseIndex = 0;
+        clearHighlight();
+        updatePlayerBar();
+        updateRepText(0, 0);
+      }
+    }
 
-  isPlaying = false;
-  updatePlayerBarBtn();
+    isPlaying = false;
+    updatePlayerBarBtn();
 }
 
 // ── PLAYER CONTROLOS ──────────────────────────
@@ -386,6 +425,171 @@ function prevPhrase() {
   } else {
     highlightPhrase(currentPhraseIndex);
   }
+}
+
+function toggleLoop() {
+  isLooping = !isLooping;
+  const btn = document.getElementById('loop-btn');
+  btn.classList.toggle('ipb-settings-active', isLooping);
+  btn.title = isLooping ? 'Loop activo' : 'Repetir';
+}
+
+function handleCardClick(event, phraseId) {
+  // Ignora cliques em botões dentro do card
+  // — não queremos interferir com speaker, estrelas, editar, etc.
+  if (event.target.closest('button')) return;
+
+  setStartingPoint(phraseId);
+}
+
+function setStartingPoint(phraseId) {
+  const index = cachedPhrases.findIndex(p => p.id === phraseId);
+  if (index < 0) return;
+
+  const wasPlaying = isPlaying;
+
+  // Para a reprodução actual antes de mudar de posição
+  if (abortController) abortController.abort();
+  isPlaying = false;
+
+  currentPhraseIndex = index;
+  highlightPhrase(index);
+  updatePlayerBar();
+  updateRepText(0, 0);
+
+  // Se estava a tocar, retoma automaticamente a partir da nova frase
+  if (wasPlaying) startPlayback();
+}
+
+// ── MODO ESCRITA ──────────────────────────────
+
+function toggleWritingMode() {
+  isWritingMode = !isWritingMode;
+
+  // Para o player ao activar/desactivar
+  if (abortController) abortController.abort();
+  isPlaying = false;
+  clearHighlight();
+  updatePlayerBarBtn();
+  updateRepText(0, 0);
+  hideWritingPanel();
+
+  const btn = document.getElementById('writing-btn');
+  btn.classList.toggle('ipb-settings-active', isWritingMode);
+  btn.title = isWritingMode ? 'Modo escrita activo' : 'Modo escrita';
+
+  // Actualiza o nome do idioma alvo no painel
+  if (island) {
+    document.getElementById('writing-target-lang').textContent = island.target_language;
+  }
+}
+
+/**
+ * normalizeText — remove acentos, pontuação e maiúsculas
+ * para uma comparação justa.
+ *
+ * normalize('NFD') decompõe caracteres acentuados:
+ *   'é' → 'e' + acento separado
+ * O replace seguinte remove os acentos isolados.
+ */
+function normalizeText(str) {
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isAnswerCorrect(input, target) {
+  return normalizeText(input) === normalizeText(target);
+}
+
+function showWritingPanel(phrase) {
+  const panel = document.getElementById('writing-panel');
+  document.getElementById('writing-native-text').textContent = phrase.native_text;
+  document.getElementById('writing-input').value    = '';
+  document.getElementById('writing-input').disabled = false;
+  document.getElementById('writing-feedback').classList.add('hidden');
+
+  // Guarda o texto alvo como atributo para aceder no submitWriting()
+  panel.dataset.targetText = phrase.target_text;
+
+  // Mostra o botão de replay só se houver áudio
+  const replayBtn = document.getElementById('writing-replay-btn');
+  replayBtn.style.display = _writingAudioUrl ? 'flex' : 'none';
+
+  panel.classList.remove('hidden');
+
+  // Foca o input automaticamente
+  setTimeout(() => document.getElementById('writing-input').focus(), 100);
+}
+
+function hideWritingPanel() {
+  document.getElementById('writing-panel').classList.add('hidden');
+}
+
+function waitForWritingInput(phrase, signal) {
+  return new Promise(resolve => {
+    writingResolve = resolve;
+    showWritingPanel(phrase);
+
+    // Se o player for abortado (pausa/stop), fecha o painel e continua
+    signal.addEventListener('abort', () => {
+      hideWritingPanel();
+      if (writingResolve) { writingResolve = null; resolve(); }
+    }, { once: true });
+  });
+}
+
+function handleWritingKey(event) {
+  // Enter submete a resposta
+  if (event.key === 'Enter') submitWriting();
+}
+
+function submitWriting() {
+  const input      = document.getElementById('writing-input');
+  const panel      = document.getElementById('writing-panel');
+  const feedback   = document.getElementById('writing-feedback');
+  const resultEl   = document.getElementById('writing-result');
+  const correctEl  = document.getElementById('writing-correct-answer');
+
+  const userAnswer = input.value.trim();
+  if (!userAnswer) return;
+
+  const targetText = panel.dataset.targetText;
+  const correct    = isAnswerCorrect(userAnswer, targetText);
+
+  input.disabled = true;
+
+  if (correct) {
+    resultEl.textContent = '✓ Correcto!';
+    resultEl.className   = 'writing-result writing-ok';
+    correctEl.textContent = '';
+  } else {
+    resultEl.textContent  = '✗ Errado';
+    resultEl.className    = 'writing-result writing-wrong';
+    correctEl.textContent = targetText;
+  }
+
+  feedback.classList.remove('hidden');
+}
+
+function advanceWriting() {
+  hideWritingPanel();
+  if (writingResolve) {
+    const resolve  = writingResolve;
+    writingResolve = null;
+    resolve();
+  }
+}
+
+function replayWritingAudio() {
+  if (!_writingAudioUrl) return;
+  _playerAudio.src         = _writingAudioUrl;
+  _playerAudio.currentTime = 0;
+  _playerAudio.play().catch(() => {});
 }
 
 // ── PLAYER UI ────────────────────────────────
