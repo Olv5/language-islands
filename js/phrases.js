@@ -284,35 +284,14 @@ async function runPlayback() {
   const total     = cachedPhrases.length;
 
   while (currentPhraseIndex < total && !signal.aborted) {
-    const phrase    = cachedPhrases[currentPhraseIndex];
-    const hasAudio  = !!phrase.audio_url;
-    const totalReps = hasAudio ? settings.repetitions : 1;
+    const phrase   = cachedPhrases[currentPhraseIndex];
+    const hasAudio = !!phrase.audio_url;
 
     highlightPhrase(currentPhraseIndex);
     updatePlayerBar();
 
-    for (let rep = 0; rep < totalReps && !signal.aborted; rep++) {
-      updateRepText(rep + 1, totalReps);
-
-      if (hasAudio) {
-        await playAudioPlayer(phrase.audio_url, signal);
-      } else {
-        await sleep(3000, signal);
-      }
-
-      if (!signal.aborted && rep < totalReps - 1) {
-        await sleep(settings.pauseBetweenReps * 1000, signal);
-      }
-    }
-
-    if (!signal.aborted) {
-      currentPhraseIndex++;
-      if (currentPhraseIndex < total && !isWritingMode) {
-        await sleep(settings.pauseBetweenPhrases * 1000, signal);
-      }
-    }
-
     if (isWritingMode) {
+
       // Toca o áudio uma vez antes de mostrar o campo de escrita
       if (hasAudio && !signal.aborted) {
         _writingAudioUrl = phrase.audio_url;
@@ -320,10 +299,14 @@ async function runPlayback() {
       } else {
         _writingAudioUrl = null;
       }
+
+      // Aguarda que o utilizador responda antes de avançar
       if (!signal.aborted) {
         await waitForWritingInput(phrase, signal);
       }
+
     } else {
+
       const totalReps = hasAudio ? settings.repetitions : 1;
       for (let rep = 0; rep < totalReps && !signal.aborted; rep++) {
         updateRepText(rep + 1, totalReps);
@@ -336,27 +319,36 @@ async function runPlayback() {
           await sleep(settings.pauseBetweenReps * 1000, signal);
         }
       }
+
+    }
+
+    if (!signal.aborted) {
+      currentPhraseIndex++;
+      // No modo escrita o utilizador controla o ritmo — sem pausa automática
+      if (currentPhraseIndex < total && !isWritingMode) {
+        await sleep(settings.pauseBetweenPhrases * 1000, signal);
+      }
     }
   }
 
   // Terminou naturalmente
-    if (!signal.aborted) {
-      if (isLooping) {
-        // Reinicia do início sem parar o player
-        currentPhraseIndex = 0;
-        isPlaying = false;
-        startPlayback();
-        return;
-      } else {
-        currentPhraseIndex = 0;
-        clearHighlight();
-        updatePlayerBar();
-        updateRepText(0, 0);
-      }
+  if (!signal.aborted) {
+    if (isLooping) {
+      currentPhraseIndex = 0;
+      isPlaying = false;
+      startPlayback();
+      return;
+    } else {
+      currentPhraseIndex = 0;
+      clearHighlight();
+      hideWritingPanel();
+      updatePlayerBar();
+      updateRepText(0, 0);
     }
+  }
 
-    isPlaying = false;
-    updatePlayerBarBtn();
+  isPlaying = false;
+  updatePlayerBarBtn();
 }
 
 // ── PLAYER CONTROLOS ──────────────────────────
