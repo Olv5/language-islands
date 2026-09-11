@@ -813,7 +813,7 @@ function openImportModal() {
  *
  * "Combien de séries reste-t-il ?" → "combien de séries reste-t-il"
  * "Combien de séries reste-t-il"   → "combien de séries reste-t-il" ✅
- * puxaaa
+ *
  */
 function normalizeForMatch(str) {
   return str
