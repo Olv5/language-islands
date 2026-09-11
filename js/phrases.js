@@ -790,6 +790,160 @@ async function confirmDeletePhrase() {
   }
 }
 
+// ── IMPORTAÇÃO EM MASSA ────────────────────────
+
+let importMatches = [];  // [{ phrase: {target_text, native_text}, audioFile: File|null }]
+
+function openImportModal() {
+  importMatches = [];
+  document.getElementById('import-text').value        = '';
+  document.getElementById('import-audio-files').value = '';
+  document.getElementById('import-preview').classList.add('hidden');
+  document.getElementById('import-submit-btn').disabled    = true;
+  document.getElementById('import-submit-btn').textContent = 'Importar';
+  openModal('import-modal');
+}
+
+/**
+ * normalizeForMatch — prepara strings para comparação
+ *
+ * O ElevenLabs remove símbolos (?,!,.,etc.) dos nomes de ficheiros
+ * mas mantém letras acentuadas (é, à, ç...).
+ * Fazemos o mesmo à frase para que a comparação funcione.
+ *
+ * "Combien de séries reste-t-il ?" → "combien de séries reste-t-il"
+ * "Combien de séries reste-t-il"   → "combien de séries reste-t-il" ✅
+ */
+function normalizeForMatch(str) {
+  return str
+    .toLowerCase()
+    .replace(/[^a-zA-ZÀ-ÿ0-9\s]/g, '')  // remove símbolos, mantém acentos
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseImportText(text) {
+  return text
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.includes('|'))
+    .map(line => {
+      const parts = line.split('|');
+      return {
+        target_text: parts[0].trim(),
+        native_text: parts[1].trim()
+      };
+    })
+    .filter(p => p.target_text && p.native_text);
+}
+
+function matchAudioToPhrase(targetText, files) {
+  const normalizedTarget = normalizeForMatch(targetText);
+  return files.find(file => {
+    // Remove extensão do ficheiro: "Je suis épuisé.mp3" → "Je suis épuisé"
+    const nameWithoutExt = file.name.replace(/\.[^.]+$/, '');
+    return normalizeForMatch(nameWithoutExt) === normalizedTarget;
+  }) || null;
+}
+
+function updateImportPreview() {
+  const text        = document.getElementById('import-text').value;
+  const filesInput  = document.getElementById('import-audio-files');
+  const audioFiles  = Array.from(filesInput.files || []);
+  const phrases     = parseImportText(text);
+
+  if (phrases.length === 0) {
+    document.getElementById('import-preview').classList.add('hidden');
+    document.getElementById('import-submit-btn').disabled = true;
+    return;
+  }
+
+  // Constrói os pares frase ↔ áudio
+  importMatches = phrases.map(phrase => ({
+    phrase,
+    audioFile: matchAudioToPhrase(phrase.target_text, audioFiles)
+  }));
+
+  // Renderiza a tabela de preview
+  const found   = importMatches.filter(m => m.audioFile).length;
+  const missing = importMatches.length - found;
+
+  document.getElementById('import-table-body').innerHTML =
+    importMatches.map((match, i) => `
+      <tr>
+        <td class="col-num">${i + 1}</td>
+        <td title="${escapeHtml(match.phrase.target_text)}">
+          ${escapeHtml(match.phrase.target_text)}
+        </td>
+        <td title="${escapeHtml(match.phrase.native_text)}">
+          ${escapeHtml(match.phrase.native_text)}
+        </td>
+        <td class="col-audio">
+          ${match.audioFile
+            ? `<span class="badge-found">✓ encontrado</span>`
+            : `<span class="badge-missing">sem áudio</span>`
+          }
+        </td>
+      </tr>
+    `).join('');
+
+  document.getElementById('import-summary').textContent =
+    `${importMatches.length} frases · ${found} com áudio · ${missing} sem áudio`;
+
+  document.getElementById('import-preview').classList.remove('hidden');
+
+  const btn = document.getElementById('import-submit-btn');
+  btn.disabled    = false;
+  btn.textContent = `Importar ${importMatches.length} frase${importMatches.length !== 1 ? 's' : ''} →`;
+}
+
+async function submitImport() {
+  if (importMatches.length === 0) return;
+
+  const btn = document.getElementById('import-submit-btn');
+  btn.disabled = true;
+
+  const maxOrder = cachedPhrases.reduce((max, p) => Math.max(max, p.sort_order), -1);
+  let imported   = 0;
+  let failed     = 0;
+
+  for (let i = 0; i < importMatches.length; i++) {
+    const { phrase, audioFile } = importMatches[i];
+    btn.textContent = `A importar ${i + 1} de ${importMatches.length}...`;
+
+    try {
+      let audioUrl = null;
+
+      if (audioFile) {
+        audioUrl = await Storage.uploadAudio(audioFile);
+      }
+
+      await Storage.savePhrase({
+        id:          crypto.randomUUID(),
+        island_id:   islandId,
+        native_text: phrase.native_text,
+        target_text: phrase.target_text,
+        audio_url:   audioUrl,
+        sort_order:  maxOrder + i + 1,
+        stars:       0,
+        mastered:    false
+      });
+
+      imported++;
+    } catch (e) {
+      console.error('Erro ao importar frase:', phrase.target_text, e);
+      failed++;
+    }
+  }
+
+  closeModal('import-modal');
+  await renderPhrases();
+
+  if (failed > 0) {
+    alert(`${imported} frases importadas. ${failed} falharam — verifica a consola.`);
+  }
+}
+
 // ── UTILITÁRIOS ────────────────────────────────
 
 function escapeHtml(str) {

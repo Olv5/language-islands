@@ -95,9 +95,12 @@
     </div>
 
     <div class="page-header" style="margin-top:1.5rem">
-      <h3>Frases</h3>
-      <button class="btn btn-primary" onclick="openCreateModal()">+ Nova frase</button>
-    </div>
+  <h3>Frases</h3>
+  <div style="display:flex; gap:0.5rem;">
+    <button class="btn btn-secondary" onclick="openImportModal()">📥 Importar</button>
+    <button class="btn btn-primary"   onclick="openCreateModal()">+ Nova frase</button>
+  </div>
+</div>
 
     <div id="phrases-list" class="phrases-list"></div>
 
@@ -162,6 +165,58 @@
   <script src="js/config.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/phrases.js"></script>
+  
+  <div id="import-modal" class="modal hidden">
+  <div class="modal-overlay" onclick="closeModal('import-modal')"></div>
+  <div class="modal-box modal-box-wide">
+    <h3>Importar frases em massa</h3>
+
+    <div class="import-section">
+      <label class="import-label">
+        1. Cola as frases
+        <span class="form-hint">Formato por linha: texto em francês | texto em português</span>
+      </label>
+      <textarea id="import-text" rows="6"
+        placeholder="Combien de séries reste-t-il ? | Quantas séries faltam?
+Je suis épuisé. | Estou esgotado.
+C'est trop lourd pour moi. | É pesado demais para mim."
+        oninput="updateImportPreview()"></textarea>
+    </div>
+
+    <div class="import-section">
+      <label class="import-label">
+        2. Selecciona os ficheiros de áudio
+        <span class="form-hint">Podes seleccionar vários ficheiros de uma vez</span>
+      </label>
+      <input type="file" id="import-audio-files"
+        accept="audio/*" multiple onchange="updateImportPreview()">
+    </div>
+
+    <div id="import-preview" class="import-preview hidden">
+      <p class="import-preview-title">Preview</p>
+      <div class="import-table-wrap">
+        <table class="import-table">
+          <thead>
+            <tr>
+              <th class="col-num">#</th>
+              <th>Texto alvo</th>
+              <th>Texto nativo</th>
+              <th class="col-audio">Áudio</th>
+            </tr>
+          </thead>
+          <tbody id="import-table-body"></tbody>
+        </table>
+      </div>
+      <p id="import-summary" class="import-summary"></p>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal('import-modal')">Cancelar</button>
+      <button class="btn btn-primary" id="import-submit-btn"
+        onclick="submitImport()" disabled>Importar</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
