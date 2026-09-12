@@ -966,7 +966,19 @@ input[type="file"] {
 }
 
 /* Scroll horizontal se a tabela for larga em mobile */
-.import-table-wrap { overflow-x: auto; }
+.import-table-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 260px;
+}
+
+.modal-box-wide {
+  max-width: 680px;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
 
 .import-table {
   width: 100%;

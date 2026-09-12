@@ -813,13 +813,15 @@ function openImportModal() {
  *
  * "Combien de séries reste-t-il ?" → "combien de séries reste-t-il"
  * "Combien de séries reste-t-il"   → "combien de séries reste-t-il" ✅
- *fdde
  */
 function normalizeForMatch(str) {
   return str
     .toLowerCase()
-    .replace(/[^a-zA-ZÀ-ÿ0-9\s]/g, '')  // remove símbolos, mantém acentos
-    .replace(/\s+/g, ' ')
+    .replace(/_/g, ' ')                  // underscores → espaços
+    .normalize('NFD')                    // decompõe acentos: é → e + acento
+    .replace(/[\u0300-\u036f]/g, '')     // remove os acentos isolados
+    .replace(/[^a-z0-9\s]/g, '')        // remove símbolos e pontuação
+    .replace(/\s+/g, ' ')               // normaliza espaços múltiplos
     .trim();
 }
 
@@ -827,9 +829,9 @@ function parseImportText(text) {
   return text
     .split('\n')
     .map(line => line.trim())
-    .filter(line => line.includes('|'))
+    .filter(line => line.includes('->'))
     .map(line => {
-      const parts = line.split('|');
+      const parts = line.split('->');
       return {
         target_text: parts[0].trim(),
         native_text: parts[1].trim()
