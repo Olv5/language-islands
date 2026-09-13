@@ -757,11 +757,12 @@ function parseImportText(text) {
     .filter(p => p.target_text && p.native_text);
 }
 
-function matchAudioToPhrase(targetText, files) {
-  const normalizedTarget = normalizeForMatch(targetText);
+function matchAudioToPhrase(phraseIndex, files) {
+  // phraseIndex é 0-based, o ficheiro chama-se 1.mp3, 2.mp3, etc.
+  const targetNumber = phraseIndex + 1;
   return files.find(file => {
-    const nameWithoutExt = file.name.replace(/\.[^.]+$/, '');
-    return normalizeForMatch(nameWithoutExt) === normalizedTarget;
+    const nameWithoutExt = file.name.replace(/\.[^.]+$/, '').trim();
+    return parseInt(nameWithoutExt, 10) === targetNumber;
   }) || null;
 }
 
@@ -777,10 +778,10 @@ function updateImportPreview() {
     return;
   }
 
-  importMatches = phrases.map(phrase => ({
-    phrase,
-    audioFile: matchAudioToPhrase(phrase.target_text, audioFiles)
-  }));
+  importMatches = phrases.map((phrase, index) => ({
+  phrase,
+  audioFile: matchAudioToPhrase(index, audioFiles)
+}));
 
   const found   = importMatches.filter(m => m.audioFile).length;
   const missing = importMatches.length - found;
