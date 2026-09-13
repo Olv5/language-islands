@@ -1,10 +1,12 @@
 /**
  * phrases.js — CRUD + Player integrado
+ * Funcionalidades: speaker, blur, estrelas, dominadas,
+ * player com loop, modo escrita, importação em massa
  */
 
 const urlParams  = new URLSearchParams(window.location.search);
 const islandId   = urlParams.get('id');
-if (!islandId) window.location.href = 'index.html';
+if (!islandId) window.location.href = 'islands.html';
 
 let island           = null;
 let cachedPhrases    = [];
@@ -14,44 +16,51 @@ let removeAudioFlag  = false;
 let isBlurred        = false;
 
 // ── ÁUDIO CARDS ───────────────────────────────
-const _cardAudio   = new Audio();
-let _playingCardId = null;
+const _cardAudio     = new Audio();
+let _playingCardId   = null;
 
 // ── PLAYER ────────────────────────────────────
 const _playerAudio     = new Audio();
 let isPlaying          = false;
 let currentPhraseIndex = 0;
 let abortController    = null;
-let isLooping = false;
-let isWritingMode  = false;
-let writingResolve = null;
-let _writingAudioUrl = null;
 let settings           = { repetitions: 2, pauseBetweenReps: 1, pauseBetweenPhrases: 2 };
+
+// ── MODO ESCRITA ──────────────────────────────
+let isWritingMode    = false;
+let writingResolve   = null;
+let _writingAudioUrl = null;
+
+// ── LOOP ──────────────────────────────────────
+let isLooping = false;
+
+// ── IMPORTAÇÃO ────────────────────────────────
+let importMatches = [];
 
 // ── INICIALIZAÇÃO ──────────────────────────────
 
 async function init() {
   const islands = await Storage.getIslands();
   island = islands.find(i => i.id === islandId);
-  if (!island) { window.location.href = 'index.html'; return; }
+  if (!island) { window.location.href = 'islands.html'; return; }
 
   document.title = `${island.name} — Language Islands`;
-  document.getElementById('island-title').textContent        = island.name;
+  document.getElementById('island-title').textContent         = island.name;
   document.getElementById('island-langs-display').textContent =
     `${island.native_language} → ${island.target_language}`;
-  document.getElementById('label-native').textContent = `Texto em ${island.native_language}`;
-  document.getElementById('label-target').textContent = `Texto em ${island.target_language}`;
+  document.getElementById('label-native').textContent = `Text in ${island.native_language}`;
+  document.getElementById('label-target').textContent = `Text in ${island.target_language}`;
 
   settings = Storage.getSettings();
   loadSettingsUI();
 
+  renderSidebar('islands');
   await renderPhrases();
 }
 
 // ── RENDERIZAÇÃO ───────────────────────────────
 
 async function renderPhrases() {
-  // Para o player e o áudio dos cards antes de re-renderizar
   if (abortController) {
     abortController.abort();
     isPlaying = false;
@@ -67,12 +76,15 @@ async function renderPhrases() {
 
   updatePlayerBar();
 
+  const blurToggle = document.getElementById('blur-toggle');
+  blurToggle.classList.toggle('hidden', cachedPhrases.length === 0);
+
   if (cachedPhrases.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
         <span class="icon">💬</span>
-        <p>Esta ilha ainda não tem frases.</p>
-        <p>Clica em "+ Nova frase" para começar!</p>
+        <p>This island has no phrases yet.</p>
+        <p>Click "+ New Phrase" to get started!</p>
       </div>
     `;
     return;
@@ -83,15 +95,14 @@ async function renderPhrases() {
 
   cachedPhrases.forEach((phrase, index) => {
     if (phrase.mastered && !dividerDone) {
-      parts.push(`<div class="mastered-divider"><span>dominadas</span></div>`);
+      parts.push(`<div class="mastered-divider"><span>mastered</span></div>`);
       dividerDone = true;
     }
 
     const stars     = phrase.stars || 0;
     const starsHtml = [1,2,3,4,5].map(s => `
       <button class="star-btn ${stars >= s ? 'star-on' : 'star-off'}"
-        onclick="setStars('${phrase.id}', ${stars === s ? 0 : s})"
-        aria-label="${s} estrela${s > 1 ? 's' : ''}">★</button>
+        onclick="setStars('${phrase.id}', ${stars === s ? 0 : s})">★</button>
     `).join('');
 
     parts.push(`
@@ -103,8 +114,7 @@ async function renderPhrases() {
           <span class="phrase-number">${index + 1}</span>
           ${phrase.audio_url
             ? `<button class="speaker-btn" id="speaker-${phrase.id}"
-                 onclick="playPhraseAudio('${phrase.id}')"
-                 aria-label="Reproduzir áudio">🔊</button>`
+                 onclick="playPhraseAudio('${phrase.id}')">🔊</button>`
             : `<div class="speaker-placeholder"></div>`
           }
         </div>
@@ -121,13 +131,13 @@ async function renderPhrases() {
             <div class="stars-row">${starsHtml}</div>
             <button class="mastered-btn ${phrase.mastered ? 'mastered-on' : ''}"
               onclick="toggleMastered('${phrase.id}')"
-              title="${phrase.mastered ? 'Remover marcação' : 'Marcar como dominada'}">✓</button>
+              title="${phrase.mastered ? 'Remove mastered' : 'Mark as mastered'}">✓</button>
           </div>
           <div class="phrase-actions">
             <button class="btn btn-secondary btn-sm"
-              onclick="openEditModal('${phrase.id}')">Editar</button>
+              onclick="openEditModal('${phrase.id}')">Edit</button>
             <button class="btn btn-danger btn-sm"
-              onclick="openDeleteModal('${phrase.id}')">Eliminar</button>
+              onclick="openDeleteModal('${phrase.id}')">Delete</button>
           </div>
         </div>
 
@@ -141,7 +151,6 @@ async function renderPhrases() {
 // ── SPEAKER CARDS ──────────────────────────────
 
 function playPhraseAudio(phraseId) {
-  // Para o player se estiver activo
   if (isPlaying) {
     if (abortController) abortController.abort();
     isPlaying = false;
@@ -150,7 +159,6 @@ function playPhraseAudio(phraseId) {
     updateRepText(0, 0);
   }
 
-  // Clicar no mesmo botão pausa
   if (_playingCardId === phraseId && !_cardAudio.paused) {
     _cardAudio.pause();
     _cardAudio.currentTime = 0;
@@ -159,7 +167,6 @@ function playPhraseAudio(phraseId) {
     return;
   }
 
-  // Para o áudio anterior
   if (_playingCardId && _playingCardId !== phraseId) {
     _cardAudio.pause();
     updateSpeakerBtn(_playingCardId, false);
@@ -173,15 +180,8 @@ function playPhraseAudio(phraseId) {
   _playingCardId         = phraseId;
   updateSpeakerBtn(phraseId, true);
 
-  _cardAudio.onended = () => {
-    updateSpeakerBtn(phraseId, false);
-    _playingCardId = null;
-  };
-
-  _cardAudio.play().catch(() => {
-    updateSpeakerBtn(phraseId, false);
-    _playingCardId = null;
-  });
+  _cardAudio.onended = () => { updateSpeakerBtn(phraseId, false); _playingCardId = null; };
+  _cardAudio.play().catch(() => { updateSpeakerBtn(phraseId, false); _playingCardId = null; });
 }
 
 function updateSpeakerBtn(phraseId, playing) {
@@ -195,13 +195,36 @@ function updateSpeakerBtn(phraseId, playing) {
 
 function toggleBlur() {
   isBlurred = !isBlurred;
-  document.querySelectorAll('.phrase-target').forEach(el => {
-    el.classList.toggle('recall-blurred', isBlurred);
-  });
+  document.querySelectorAll('.phrase-target').forEach(el =>
+    el.classList.toggle('recall-blurred', isBlurred)
+  );
   const btn = document.getElementById('blur-toggle');
-  btn.textContent = isBlurred ? '👁 Mostrar' : '👁 Ocultar';
+  btn.textContent = isBlurred ? '👁 Show' : '👁 Hide';
   btn.classList.toggle('btn-blur-active', isBlurred);
   btn.classList.toggle('btn-secondary',   !isBlurred);
+}
+
+// ── CLICK TO SET STARTING POINT ───────────────
+
+function handleCardClick(event, phraseId) {
+  if (event.target.closest('button')) return;
+  setStartingPoint(phraseId);
+}
+
+function setStartingPoint(phraseId) {
+  const index      = cachedPhrases.findIndex(p => p.id === phraseId);
+  if (index < 0) return;
+  const wasPlaying = isPlaying;
+
+  if (abortController) abortController.abort();
+  isPlaying = false;
+
+  currentPhraseIndex = index;
+  highlightPhrase(index);
+  updatePlayerBar();
+  updateRepText(0, 0);
+
+  if (wasPlaying) startPlayback();
 }
 
 // ── ESTRELAS ───────────────────────────────────
@@ -221,7 +244,7 @@ async function setStars(phraseId, newStars) {
       btn.onclick = () => setStars(phraseId, newStars === val ? 0 : val);
     });
   } catch (e) {
-    alert('Erro ao guardar estrelas: ' + e.message);
+    alert('Error saving stars: ' + e.message);
   }
 }
 
@@ -234,7 +257,7 @@ async function toggleMastered(phraseId) {
     await Storage.updatePhrase(phraseId, { mastered: !phrase.mastered });
     await renderPhrases();
   } catch (e) {
-    alert('Erro ao actualizar frase: ' + e.message);
+    alert('Error: ' + e.message);
   }
 }
 
@@ -251,25 +274,20 @@ function sleep(ms, signal) {
 function playAudioPlayer(url, signal) {
   return new Promise(resolve => {
     if (signal.aborted) return resolve();
-
     let done = false;
     function finish() {
-      if (done) return;
-      done = true;
+      if (done) return; done = true;
       _playerAudio.onended = null;
       _playerAudio.onerror = null;
       resolve();
     }
-
     _playerAudio.onended = finish;
     _playerAudio.onerror = finish;
-
     signal.addEventListener('abort', () => {
       _playerAudio.pause();
       _playerAudio.currentTime = 0;
       finish();
     }, { once: true });
-
     _playerAudio.src = url;
     _playerAudio.currentTime = 0;
     _playerAudio.play().catch(finish);
@@ -291,22 +309,16 @@ async function runPlayback() {
     updatePlayerBar();
 
     if (isWritingMode) {
-
-      // Toca o áudio uma vez antes de mostrar o campo de escrita
       if (hasAudio && !signal.aborted) {
         _writingAudioUrl = phrase.audio_url;
         await playAudioPlayer(phrase.audio_url, signal);
       } else {
         _writingAudioUrl = null;
       }
-
-      // Aguarda que o utilizador responda antes de avançar
       if (!signal.aborted) {
         await waitForWritingInput(phrase, signal);
       }
-
     } else {
-
       const totalReps = hasAudio ? settings.repetitions : 1;
       for (let rep = 0; rep < totalReps && !signal.aborted; rep++) {
         updateRepText(rep + 1, totalReps);
@@ -319,12 +331,10 @@ async function runPlayback() {
           await sleep(settings.pauseBetweenReps * 1000, signal);
         }
       }
-
     }
 
     if (!signal.aborted) {
       currentPhraseIndex++;
-      // No modo escrita o utilizador controla o ritmo — sem pausa automática
       if (currentPhraseIndex < total && !isWritingMode) {
         await sleep(settings.pauseBetweenPhrases * 1000, signal);
       }
@@ -353,15 +363,12 @@ async function runPlayback() {
 
 // ── PLAYER CONTROLOS ──────────────────────────
 
-function togglePlay() {
-  isPlaying ? pausePlayback() : startPlayback();
-}
+function togglePlay() { isPlaying ? pausePlayback() : startPlayback(); }
 
 function startPlayback() {
   if (cachedPhrases.length === 0) return;
   if (currentPhraseIndex >= cachedPhrases.length) currentPhraseIndex = 0;
 
-  // Para o áudio dos cards se estiver a tocar
   if (_playingCardId) {
     _cardAudio.pause();
     updateSpeakerBtn(_playingCardId, false);
@@ -384,6 +391,7 @@ function stopPlayer() {
   isPlaying          = false;
   currentPhraseIndex = 0;
   clearHighlight();
+  hideWritingPanel();
   updatePlayerBarBtn();
   updatePlayerBar();
   updateRepText(0, 0);
@@ -393,64 +401,60 @@ function nextPhrase() {
   const wasPlaying = isPlaying;
   if (abortController) abortController.abort();
   isPlaying = false;
-
   currentPhraseIndex = (currentPhraseIndex + 1) % cachedPhrases.length;
   updatePlayerBar();
-
-  if (wasPlaying) {
-    startPlayback();
-  } else {
-    highlightPhrase(currentPhraseIndex);
-  }
+  if (wasPlaying) { startPlayback(); } else { highlightPhrase(currentPhraseIndex); }
 }
 
 function prevPhrase() {
   const wasPlaying = isPlaying;
   if (abortController) abortController.abort();
   isPlaying = false;
-
   currentPhraseIndex = (currentPhraseIndex - 1 + cachedPhrases.length) % cachedPhrases.length;
   updatePlayerBar();
-
-  if (wasPlaying) {
-    startPlayback();
-  } else {
-    highlightPhrase(currentPhraseIndex);
-  }
+  if (wasPlaying) { startPlayback(); } else { highlightPhrase(currentPhraseIndex); }
 }
+
+// ── PLAYER UI ────────────────────────────────
+
+function highlightPhrase(index) {
+  clearHighlight();
+  const phrase = cachedPhrases[index];
+  if (!phrase) return;
+  const card = document.querySelector(`[data-phrase-id="${phrase.id}"]`);
+  if (!card) return;
+  card.classList.add('phrase-playing');
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function clearHighlight() {
+  document.querySelectorAll('.phrase-playing').forEach(el => el.classList.remove('phrase-playing'));
+}
+
+function updatePlayerBar() {
+  const total   = cachedPhrases.length;
+  const current = total > 0 ? Math.min(currentPhraseIndex + 1, total) : 0;
+  document.getElementById('bar-progress-text').textContent = total > 0 ? `${current} / ${total}` : '';
+}
+
+function updateRepText(rep, total) {
+  const el = document.getElementById('bar-rep-text');
+  if (!el) return;
+  el.textContent = (total > 1 && rep > 0) ? `Rep ${rep}×` : '';
+}
+
+function updatePlayerBarBtn() {
+  const btn = document.getElementById('bar-play-btn');
+  if (btn) btn.textContent = isPlaying ? '⏸' : '▶';
+}
+
+// ── LOOP ───────────────────────────────────────
 
 function toggleLoop() {
   isLooping = !isLooping;
   const btn = document.getElementById('loop-btn');
   btn.classList.toggle('ipb-settings-active', isLooping);
-  btn.title = isLooping ? 'Loop activo' : 'Repetir';
-}
-
-function handleCardClick(event, phraseId) {
-  // Ignora cliques em botões dentro do card
-  // — não queremos interferir com speaker, estrelas, editar, etc.
-  if (event.target.closest('button')) return;
-
-  setStartingPoint(phraseId);
-}
-
-function setStartingPoint(phraseId) {
-  const index = cachedPhrases.findIndex(p => p.id === phraseId);
-  if (index < 0) return;
-
-  const wasPlaying = isPlaying;
-
-  // Para a reprodução actual antes de mudar de posição
-  if (abortController) abortController.abort();
-  isPlaying = false;
-
-  currentPhraseIndex = index;
-  highlightPhrase(index);
-  updatePlayerBar();
-  updateRepText(0, 0);
-
-  // Se estava a tocar, retoma automaticamente a partir da nova frase
-  if (wasPlaying) startPlayback();
+  btn.title = isLooping ? 'Loop on' : 'Loop';
 }
 
 // ── MODO ESCRITA ──────────────────────────────
@@ -458,7 +462,6 @@ function setStartingPoint(phraseId) {
 function toggleWritingMode() {
   isWritingMode = !isWritingMode;
 
-  // Para o player ao activar/desactivar
   if (abortController) abortController.abort();
   isPlaying = false;
   clearHighlight();
@@ -468,30 +471,17 @@ function toggleWritingMode() {
 
   const btn = document.getElementById('writing-btn');
   btn.classList.toggle('ipb-settings-active', isWritingMode);
-  btn.title = isWritingMode ? 'Modo escrita activo' : 'Modo escrita';
+  btn.title = isWritingMode ? 'Writing mode on' : 'Writing mode';
 
-  // Actualiza o nome do idioma alvo no painel
   if (island) {
     document.getElementById('writing-target-lang').textContent = island.target_language;
   }
 }
 
-/**
- * normalizeText — remove acentos, pontuação e maiúsculas
- * para uma comparação justa.
- *
- * normalize('NFD') decompõe caracteres acentuados:
- *   'é' → 'e' + acento separado
- * O replace seguinte remove os acentos isolados.
- */
 function normalizeText(str) {
-  return str
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^\w\s]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return str.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function isAnswerCorrect(input, target) {
@@ -501,20 +491,15 @@ function isAnswerCorrect(input, target) {
 function showWritingPanel(phrase) {
   const panel = document.getElementById('writing-panel');
   document.getElementById('writing-native-text').textContent = phrase.native_text;
-  document.getElementById('writing-input').value    = '';
-  document.getElementById('writing-input').disabled = false;
+  document.getElementById('writing-input').value             = '';
+  document.getElementById('writing-input').disabled          = false;
   document.getElementById('writing-feedback').classList.add('hidden');
-
-  // Guarda o texto alvo como atributo para aceder no submitWriting()
   panel.dataset.targetText = phrase.target_text;
 
-  // Mostra o botão de replay só se houver áudio
   const replayBtn = document.getElementById('writing-replay-btn');
   replayBtn.style.display = _writingAudioUrl ? 'flex' : 'none';
 
   panel.classList.remove('hidden');
-
-  // Foca o input automaticamente
   setTimeout(() => document.getElementById('writing-input').focus(), 100);
 }
 
@@ -526,8 +511,6 @@ function waitForWritingInput(phrase, signal) {
   return new Promise(resolve => {
     writingResolve = resolve;
     showWritingPanel(phrase);
-
-    // Se o player for abortado (pausa/stop), fecha o painel e continua
     signal.addEventListener('abort', () => {
       hideWritingPanel();
       if (writingResolve) { writingResolve = null; resolve(); }
@@ -535,10 +518,7 @@ function waitForWritingInput(phrase, signal) {
   });
 }
 
-function handleWritingKey(event) {
-  // Enter submete a resposta
-  if (event.key === 'Enter') submitWriting();
-}
+function handleWritingKey(event) { if (event.key === 'Enter') submitWriting(); }
 
 function submitWriting() {
   const input      = document.getElementById('writing-input');
@@ -556,11 +536,11 @@ function submitWriting() {
   input.disabled = true;
 
   if (correct) {
-    resultEl.textContent = '✓ Correcto!';
-    resultEl.className   = 'writing-result writing-ok';
+    resultEl.textContent  = '✓ Correct!';
+    resultEl.className    = 'writing-result writing-ok';
     correctEl.textContent = '';
   } else {
-    resultEl.textContent  = '✗ Errado';
+    resultEl.textContent  = '✗ Wrong';
     resultEl.className    = 'writing-result writing-wrong';
     correctEl.textContent = targetText;
   }
@@ -582,41 +562,6 @@ function replayWritingAudio() {
   _playerAudio.src         = _writingAudioUrl;
   _playerAudio.currentTime = 0;
   _playerAudio.play().catch(() => {});
-}
-
-// ── PLAYER UI ────────────────────────────────
-
-function highlightPhrase(index) {
-  clearHighlight();
-  const phrase = cachedPhrases[index];
-  if (!phrase) return;
-  const card = document.querySelector(`[data-phrase-id="${phrase.id}"]`);
-  if (!card) return;
-  card.classList.add('phrase-playing');
-  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function clearHighlight() {
-  document.querySelectorAll('.phrase-playing')
-    .forEach(el => el.classList.remove('phrase-playing'));
-}
-
-function updatePlayerBar() {
-  const total   = cachedPhrases.length;
-  const current = total > 0 ? Math.min(currentPhraseIndex + 1, total) : 0;
-  document.getElementById('bar-progress-text').textContent =
-    total > 0 ? `${current} / ${total}` : '';
-}
-
-function updateRepText(rep, total) {
-  const el = document.getElementById('bar-rep-text');
-  if (!el) return;
-  el.textContent = (total > 1 && rep > 0) ? `Rep ${rep}×` : '';
-}
-
-function updatePlayerBarBtn() {
-  const btn = document.getElementById('bar-play-btn');
-  if (btn) btn.textContent = isPlaying ? '⏸' : '▶';
 }
 
 // ── DEFINIÇÕES ────────────────────────────────
@@ -654,7 +599,7 @@ function toggleSettings() {
 
 function openCreateModal() {
   resetAudioState();
-  document.getElementById('phrase-modal-title').textContent = 'Nova frase';
+  document.getElementById('phrase-modal-title').textContent = 'New Phrase';
   document.getElementById('phrase-id').value     = '';
   document.getElementById('phrase-native').value = '';
   document.getElementById('phrase-target').value = '';
@@ -666,7 +611,7 @@ function openEditModal(id) {
   if (!phrase) return;
 
   resetAudioState();
-  document.getElementById('phrase-modal-title').textContent = 'Editar frase';
+  document.getElementById('phrase-modal-title').textContent = 'Edit Phrase';
   document.getElementById('phrase-id').value     = phrase.id;
   document.getElementById('phrase-native').value = phrase.native_text;
   document.getElementById('phrase-target').value = phrase.target_text;
@@ -679,11 +624,7 @@ function openEditModal(id) {
   openModal('phrase-modal');
 }
 
-function openDeleteModal(id) {
-  pendingDeleteId = id;
-  openModal('delete-modal');
-}
-
+function openDeleteModal(id) { pendingDeleteId = id; openModal('delete-modal'); }
 function openModal(id)  { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
@@ -717,11 +658,10 @@ function removeCurrentAudio() {
 }
 
 function resetAudioState() {
-  pendingAudioFile = null;
-  removeAudioFlag  = false;
-  document.getElementById('phrase-audio-file').value   = '';
-  document.getElementById('current-audio-player').src  = '';
-  document.getElementById('new-audio-player').src      = '';
+  pendingAudioFile = null; removeAudioFlag = false;
+  document.getElementById('phrase-audio-file').value  = '';
+  document.getElementById('current-audio-player').src = '';
+  document.getElementById('new-audio-player').src     = '';
   document.getElementById('current-audio-section').classList.add('hidden');
   document.getElementById('new-audio-section').classList.add('hidden');
 }
@@ -730,10 +670,8 @@ function resetAudioState() {
 
 async function submitPhraseForm(event) {
   event.preventDefault();
-
   const submitBtn = event.target.querySelector('[type="submit"]');
-  submitBtn.disabled    = true;
-  submitBtn.textContent = 'A guardar...';
+  submitBtn.disabled = true; submitBtn.textContent = 'Saving...';
 
   try {
     const id         = document.getElementById('phrase-id').value;
@@ -765,12 +703,10 @@ async function submitPhraseForm(event) {
 
     closeModal('phrase-modal');
     await renderPhrases();
-
   } catch (e) {
-    alert('Erro ao guardar frase: ' + e.message);
+    alert('Error saving phrase: ' + e.message);
   } finally {
-    submitBtn.disabled    = false;
-    submitBtn.textContent = 'Guardar';
+    submitBtn.disabled = false; submitBtn.textContent = 'Save';
   }
 }
 
@@ -786,13 +722,11 @@ async function confirmDeletePhrase() {
     closeModal('delete-modal');
     await renderPhrases();
   } catch (e) {
-    alert('Erro ao eliminar frase: ' + e.message);
+    alert('Error deleting: ' + e.message);
   }
 }
 
-// ── IMPORTAÇÃO EM MASSA ────────────────────────
-
-let importMatches = [];  // [{ phrase: {target_text, native_text}, audioFile: File|null }]
+// ── IMPORTAÇÃO ────────────────────────────────
 
 function openImportModal() {
   importMatches = [];
@@ -800,42 +734,25 @@ function openImportModal() {
   document.getElementById('import-audio-files').value = '';
   document.getElementById('import-preview').classList.add('hidden');
   document.getElementById('import-submit-btn').disabled    = true;
-  document.getElementById('import-submit-btn').textContent = 'Importar';
+  document.getElementById('import-submit-btn').textContent = 'Import';
   openModal('import-modal');
 }
 
-/**
- * normalizeForMatch — prepara strings para comparação
- *
- * O ElevenLabs remove símbolos (?,!,.,etc.) dos nomes de ficheiros
- * mas mantém letras acentuadas (é, à, ç...).
- * Fazemos o mesmo à frase para que a comparação funcione.
- *
- * "Combien de séries reste-t-il ?" → "combien de séries reste-t-il"
- * "Combien de séries reste-t-il"   → "combien de séries reste-t-il" ✅
- */
 function normalizeForMatch(str) {
-  return str
-    .toLowerCase()
-    .replace(/_/g, ' ')                  // underscores → espaços
-    .normalize('NFD')                    // decompõe acentos: é → e + acento
-    .replace(/[\u0300-\u036f]/g, '')     // remove os acentos isolados
-    .replace(/[^a-z0-9\s]/g, '')        // remove símbolos e pontuação
-    .replace(/\s+/g, ' ')               // normaliza espaços múltiplos
-    .trim();
+  return str.toLowerCase()
+    .replace(/_/g, ' ')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ').trim();
 }
 
 function parseImportText(text) {
-  return text
-    .split('\n')
+  return text.split('\n')
     .map(line => line.trim())
     .filter(line => line.includes('->'))
     .map(line => {
       const parts = line.split('->');
-      return {
-        target_text: parts[0].trim(),
-        native_text: parts[1].trim()
-      };
+      return { target_text: parts[0].trim(), native_text: parts[1].trim() };
     })
     .filter(p => p.target_text && p.native_text);
 }
@@ -843,17 +760,16 @@ function parseImportText(text) {
 function matchAudioToPhrase(targetText, files) {
   const normalizedTarget = normalizeForMatch(targetText);
   return files.find(file => {
-    // Remove extensão do ficheiro: "Je suis épuisé.mp3" → "Je suis épuisé"
     const nameWithoutExt = file.name.replace(/\.[^.]+$/, '');
     return normalizeForMatch(nameWithoutExt) === normalizedTarget;
   }) || null;
 }
 
 function updateImportPreview() {
-  const text        = document.getElementById('import-text').value;
-  const filesInput  = document.getElementById('import-audio-files');
-  const audioFiles  = Array.from(filesInput.files || []);
-  const phrases     = parseImportText(text);
+  const text       = document.getElementById('import-text').value;
+  const filesInput = document.getElementById('import-audio-files');
+  const audioFiles = Array.from(filesInput.files || []);
+  const phrases    = parseImportText(text);
 
   if (phrases.length === 0) {
     document.getElementById('import-preview').classList.add('hidden');
@@ -861,13 +777,11 @@ function updateImportPreview() {
     return;
   }
 
-  // Constrói os pares frase ↔ áudio
   importMatches = phrases.map(phrase => ({
     phrase,
     audioFile: matchAudioToPhrase(phrase.target_text, audioFiles)
   }));
 
-  // Renderiza a tabela de preview
   const found   = importMatches.filter(m => m.audioFile).length;
   const missing = importMatches.length - found;
 
@@ -875,29 +789,25 @@ function updateImportPreview() {
     importMatches.map((match, i) => `
       <tr>
         <td class="col-num">${i + 1}</td>
-        <td title="${escapeHtml(match.phrase.target_text)}">
-          ${escapeHtml(match.phrase.target_text)}
-        </td>
-        <td title="${escapeHtml(match.phrase.native_text)}">
-          ${escapeHtml(match.phrase.native_text)}
-        </td>
+        <td title="${escapeHtml(match.phrase.target_text)}">${escapeHtml(match.phrase.target_text)}</td>
+        <td title="${escapeHtml(match.phrase.native_text)}">${escapeHtml(match.phrase.native_text)}</td>
         <td class="col-audio">
           ${match.audioFile
-            ? `<span class="badge-found">✓ encontrado</span>`
-            : `<span class="badge-missing">sem áudio</span>`
+            ? `<span class="badge-found">✓ found</span>`
+            : `<span class="badge-missing">no audio</span>`
           }
         </td>
       </tr>
     `).join('');
 
   document.getElementById('import-summary').textContent =
-    `${importMatches.length} frases · ${found} com áudio · ${missing} sem áudio`;
+    `${importMatches.length} phrases · ${found} with audio · ${missing} without audio`;
 
   document.getElementById('import-preview').classList.remove('hidden');
 
   const btn = document.getElementById('import-submit-btn');
   btn.disabled    = false;
-  btn.textContent = `Importar ${importMatches.length} frase${importMatches.length !== 1 ? 's' : ''} →`;
+  btn.textContent = `Import ${importMatches.length} phrase${importMatches.length !== 1 ? 's' : ''} →`;
 }
 
 async function submitImport() {
@@ -912,14 +822,11 @@ async function submitImport() {
 
   for (let i = 0; i < importMatches.length; i++) {
     const { phrase, audioFile } = importMatches[i];
-    btn.textContent = `A importar ${i + 1} de ${importMatches.length}...`;
+    btn.textContent = `Importing ${i + 1} of ${importMatches.length}...`;
 
     try {
       let audioUrl = null;
-
-      if (audioFile) {
-        audioUrl = await Storage.uploadAudio(audioFile);
-      }
+      if (audioFile) audioUrl = await Storage.uploadAudio(audioFile);
 
       await Storage.savePhrase({
         id:          crypto.randomUUID(),
@@ -931,10 +838,9 @@ async function submitImport() {
         stars:       0,
         mastered:    false
       });
-
       imported++;
     } catch (e) {
-      console.error('Erro ao importar frase:', phrase.target_text, e);
+      console.error('Error importing phrase:', phrase.target_text, e);
       failed++;
     }
   }
@@ -942,9 +848,7 @@ async function submitImport() {
   closeModal('import-modal');
   await renderPhrases();
 
-  if (failed > 0) {
-    alert(`${imported} frases importadas. ${failed} falharam — verifica a consola.`);
-  }
+  if (failed > 0) alert(`${imported} imported. ${failed} failed — check console.`);
 }
 
 // ── UTILITÁRIOS ────────────────────────────────
@@ -959,5 +863,5 @@ function escapeHtml(str) {
 
 init().catch(err => {
   console.error(err);
-  alert('Erro ao carregar a página. Verifica a ligação ao Supabase.');
+  alert('Error loading page. Check Supabase connection.');
 });
